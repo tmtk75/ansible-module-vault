@@ -1,0 +1,69 @@
+# -*- mode: python -*-
+# vi: set ft=python :
+import json, requests
+from ansible.module_utils.basic import AnsibleModule
+
+
+def main():
+    module = AnsibleModule(
+        argument_spec=dict(
+            dest=dict(default="/var/tmp/vault-init.json", type="str"),
+            url=dict(default="http://127.0.0.1:8200", type="str"),
+            secret_shares=dict(default=3, type="int"),
+            secret_threshold=dict(default=2, type="int"),
+        ),
+    )
+
+    url = module.params['url']
+    res = requests.get(url + '/v1/sys/init')
+    if res.status_code != 200:
+        return module.fail_json(msg=res.text)
+
+    if json.loads(res.text)["initialized"]:
+        return module.exit_json(
+            changed=False,
+            msg="the vault is already initialized",
+        )
+
+    secret_shares = module.params['secret_shares']
+    secret_threshold = module.params['secret_threshold']
+    res = requests.put(url + '/v1/sys/init', data=json.dumps({"secret_shares": secret_shares, "secret_threshold": secret_threshold}))
+    if res.status_code != 200:
+        return module.fail_json(msg=res.text)
+
+    dest = module.params['dest']
+    with open(dest, "w") as f:
+        f.write(res.text)
+
+    module.exit_json(
+        changed=True,
+        response=json.loads(res.text),
+        dest=dest,
+    )
+
+if __name__ == '__main__':
+    main()
+
+
+DOCUMENTATION = '''
+---
+module: vault_init
+short_description: module to initilize vault
+'''
+
+EXAMPLES = '''
+- vault_init:
+    url: http://127.0.0.1:8200/
+'''
+
+RETURN = '''
+dest:
+    description: destination file/path for the response of /sys/init
+    returned: success
+    type: string
+    sample: /var/tmp/vault-init.json
+response:
+    description: HTTP response of /sys/init
+    returned: changed
+    type: json
+'''

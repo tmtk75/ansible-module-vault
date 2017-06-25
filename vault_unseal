@@ -1,0 +1,75 @@
+# -*- mode: python -*-
+# vi: set ft=python :
+import sys, json, requests, os.path
+from ansible.module_utils.basic import AnsibleModule
+
+
+def main():
+    module = AnsibleModule(
+        argument_spec=dict(
+            path=dict(default="/var/tmp/vault-init.json", type="str"),
+            url=dict(default="http://127.0.0.1:8200", type="str"),
+        ),
+    )
+
+    url = module.params['url']
+    res = requests.get(url + '/v1/sys/seal-status')
+    if res.status_code != 200:
+        return module.fail_json(msg=res.text)
+
+    path = module.params['path']
+    if not json.loads(res.text)["sealed"]:
+        return module.exit_json(
+            changed=False,
+            msg="the vault is already unsealed",
+            path=path,
+        )
+
+    if not os.path.isfile(path):
+        return module.exit_json(
+            changed=False,
+            msg="missing %s" % path,
+        )
+
+    try:
+        with open(path, "r") as f:
+            keys = json.loads(f.read())['keys']
+    except ValueError as err:
+        return module.fail_json(msg=str(err))
+
+    for k in keys:
+        res = requests.put(url + '/v1/sys/unseal', data=json.dumps({"key": k}))
+        if res.status_code != 200:
+            return module.fail_json(msg=res.text)
+
+    module.exit_json(
+        changed=True,
+        response=json.loads(res.text),
+        path=path,
+    )
+
+if __name__ == '__main__':
+    main()
+
+
+DOCUMENTATION = '''
+---
+module: vault_unseal
+short_description: module to unseal vault
+'''
+
+EXAMPLES = '''
+- vault_unseal:
+'''
+
+RETURN = '''
+path:
+    description: destination file/path for the response of /sys/unseal
+    returned: success
+    type: string
+    sample: /var/tmp/vault-init.json
+response:
+    description: HTTP response of /sys/unseal
+    returned: changed
+    type: json
+'''
